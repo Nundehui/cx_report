@@ -1,0 +1,442 @@
+---
+title: "CX survey report"
+author: "Nundehui Xicotencatl"
+date: "May 22, 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+# About the project
+
+The following report describes the responses from a customer experience survey, focused on the sales department. The questionary asks the general opinion about car-buying experience and three particular moments of interaction between the client (the respondent) and the dealership team (payment, delivery, after sales).
+
+```{r general_settings, include=FALSE}
+library(dplyr)
+library(ggplot2)
+library(tidyr)
+library(gtsummary)
+library(gridExtra)
+library(tm)
+library(SnowballC)
+library(wordcloud)
+library(RColorBrewer)
+library(ggwordcloud)
+library(tau)
+
+#Directory
+dir <- "C:/Users/user/Performance_reports"
+
+#Function to recode al X to Yes and blanks to No
+relabel_x <- function(a_vector) {
+  a_vector[a_vector %in% "X"] <- "Yes"
+  a_vector[a_vector %in% ""] <- "No"
+  a_vector
+}
+
+#Function to get counts and %
+perc <- function(x, n){ round(100*length((which(x == n))) / length(x), digits = 2) }
+count <- function(x, n){ round(length((which(x == n))), digits = 2) }
+
+```
+
+# About the dataset
+
+The data for this project comes from a unique csv file which includes general data to identify the location, the consultant, the department, date, product sold, among others, and the items from the questionary regarding the expected behaviors when dealing with a client. From the results, it is expected to define training needs and establish sales and service bonuses and awards.  
+
+```{r data_processing, include=FALSE}
+#Dataset
+cx_survey <- read.csv(paste(dir,"201806CVP.csv", sep="/"),stringsAsFactors=FALSE, na.strings = "NA")
+
+str(cx_survey)
+
+#Rename columns
+colnames(cx_survey) <- c("dealership",	 "vin",	 "vehicle",	 "event_date",	 "publishing_date",	 "survey_nr",	 "instant_survey",	 "recovery_survey",	 "sales_consultant",	 "service_advisor",	 "service_technician",	 "department",	 "payment_selection",	 "courtesy_and_respect",	 "product_knowledge",	 "assistance",	 "savvy",	 "driving_test",	 "extra_general_opinion",	 "is_payment_experience",	 "rs_payment_experience",	 "financial_products_info",	 "payment_assistance",	 "contract_explanation",	 "time_for_docs",	 "extra_payment",	 "is_delivery",	 "rs_delivery",	 "timely_delivery",	 "cleanliness",	 "condition",	 "features_explanation",	 "delivery_time",	 "scheduling_explanation",	 "checklist_review",	 "extra_delivery",	 "is_commitment",	 "rs_commitment",	 "facilities",	 "sharing",	 "vehicle_trust",	 "clarity",	 "confidence",	 "listening",	 "overall_sales_experience",	 "follow_up",	 "time_attend_complaint",	 "bridge",	 "is_comments",	 "rs_comments",	 "CVP",	 "reprobed",	 "recoveries",	 "BID",	 "name",	 "survey_id",	 "RFC",	 "STARS",	 "position",	 "dept")
+
+
+#Delete (direct) personal data -- The complete information regarding people and dealerships is not included in the uploaded dataset. However, the following treatment was applied and is mandatory to merge with other databases. 
+#cx_survey$sales_consultant <- sapply(strsplit(cx_survey$sales_consultant, split='-', fixed=TRUE), function(x) (x[1]))
+#cx_survey$dealership <- sapply(strsplit(cx_survey$dealership, split='-', fixed=TRUE), function(x) (x[1]))
+#cx_survey$service_advisor <- sapply(strsplit(cx_survey$service_advisor, split='-', fixed=TRUE), function(x) (x[1]))
+#cx_survey$service_technician <- sapply(strsplit(cx_survey$service_technician, split='-', fixed=TRUE), function(x) (x[1]))
+
+
+#Convert columns into factors
+scores <- c("is_payment_experience",	 "rs_payment_experience",	 "is_delivery",	 "rs_delivery",	"is_commitment",	 "rs_commitment",	 "facilities",	 "sharing",	 "vehicle_trust",	 "clarity",	 "confidence",	 "listening",	 "overall_sales_experience",	 "follow_up",	 "time_attend_complaint")
+cx_survey[scores] <- lapply(cx_survey[scores], factor)
+sapply(cx_survey, class)
+
+sales <- filter(cx_survey, department == "Ventas")
+service <- filter(cx_survey, department == "Servicio")
+```
+
+# General opinion
+
+The database processed corresponds to more than 30k of surveys (23k service, 7k sales). The patterns are similar, most of the respondents assigned the highest score to its experience. To have a clear view of this, the same data using percentages relative to its total are presented on the right. 
+
+```{r overall_opinion_freq, echo=FALSE}
+#Count of overall scores from both (sales and service) departments.
+count_overall <- ggplot(data = cx_survey, aes(y = overall_sales_experience, fill = department)) +
+  scale_y_discrete(labels = c("10 (Excellent)", "9", "8", "7", "6", "5 (Reprobed)"), name="Overall Experience") +
+  scale_fill_manual(values = c("#af8dc3", "#762a83")) +
+  geom_bar(position = "dodge") +  
+  guides(fill = guide_legend(reverse = TRUE)) +
+  theme(panel.grid = element_blank()) 
+
+#Relabel for plotting
+levels(cx_survey$overall_sales_experience) <- c("10 (Excellent)", "9", "8", "7", "6", "5 (Reprobed)")
+
+#Proportional stacked bars
+proportion_overall_exp <- cx_survey %>%
+  group_by(overall_sales_experience, department) %>%
+  tally() %>%
+  group_by(department) %>%
+  mutate(Percentage = (n / sum(n))*100) %>%
+  ggplot( aes(department, Percentage, fill = overall_sales_experience)) +
+        geom_bar(stat = "identity", color = NA) +
+        scale_fill_manual(values = c("#762a83", "#af8dc3", "#e7d4e8", "#d9f0d3", "#7fbf7b", "#1b7837"  )) +
+        labs(fill = "Scores")+
+  theme(panel.grid = element_blank())
+
+grid.arrange(count_overall, proportion_overall_exp, ncol=2)
+
+```
+
+From an inspection from the further comments regarding the overall experience, the customers mostly used words such as "excelente" (excellent, around 2k times), "bien" (good, less than 1.5k) and "atencion" (support, less than 2k). The words at the cloud corresponds to the frequency of the most used words.
+
+```{r opinion_cloud_code, include=FALSE}
+
+#Text analysis over general opinion
+
+sales_opinion <- sales %>%
+  dplyr::select(overall_sales_experience, is_comments)
+
+fileConn<-file("sales_opinion.txt")
+writeLines(sales_opinion$is_comments, fileConn)
+close(fileConn)
+
+filePath <- "sales_opinion.txt"
+text <- readLines(filePath, encoding="UTF-8")
+
+text = iconv(text, to="ASCII//TRANSLIT")
+corpus <- Corpus(VectorSource(text))
+
+d <- tm_map(corpus, tolower) %>%
+  tm_map(stripWhitespace) %>% tm_map(removePunctuation) %>%
+  tm_map(removeNumbers) %>%
+  tm_map(removeWords, c(stopwords("spanish"), "vehiculo", "auto", "autos", "solo", "ford", "asi", "carro", "mas"))
+
+#Matriz de terminos - table which contains the frequency of words
+tdm <- TermDocumentMatrix(d)
+m <- as.matrix(tdm)
+v <- sort(rowSums(m), decreasing=TRUE)
+df <- data.frame(word = names(v), freq=v)
+
+```
+
+```{r opinion_cloud, echo=FALSE}
+
+#Plots
+#Frequencies
+
+wordcloud(words=df$word, freq=df$freq, min.freq = 50, 
+          max.words = 50, random.order = FALSE, rot.per = 0.50,
+          random.color = FALSE,
+          colors = brewer.pal(9, "YlGnBu"))
+
+```
+
+
+# Sales surveys
+
+# Individual surveys
+From the overall experience, interacting with the main contact person in the dealership is paramount. The perception towards this, is shown in the following graphs.  
+
+The customers refered to be treated politely and helpful. Less than 300 people complained about the personal interaction with the employees, being the poor product knowledge the one that received a negative opinion.
+
+```{r individual_traits, echo=FALSE}
+
+#create dataframe with columns
+
+q_individual <- c("Did the employee treat you courteous \n and respectful at all time?",
+                  "Did the employee demonstrate to know \n the necessary information about the products?",
+                  "Was the employee helpful?",
+                  "Was the employee no insistent buying\n the products?")
+
+countn_individual<- c(count(sales$courtesy_and_respect, "X"), count(sales$product_knowledge, "X"), 
+                      count(sales$assistance, "X"), count(sales$savvy, "X"))
+county_individual <- c(count(sales$courtesy_and_respect, ""), count(sales$product_knowledge, ""), 
+                      count(sales$assistance, ""), count(sales$savvy, ""))
+
+percn_individual <- c(perc(sales$courtesy_and_respect, "X"), perc(sales$product_knowledge, "X"), 
+                      perc(sales$assistance, "X"), perc(sales$savvy, "X"))
+percy_individual <- c(perc(sales$courtesy_and_respect, ""), perc(sales$product_knowledge, ""), 
+                      perc(sales$assistance, ""), perc(sales$savvy, ""))
+
+#https://www.r-bloggers.com/plotting-likert-scales/
+ind_items <- data.frame(Questions = q_individual, percy = percy_individual, percn = percn_individual, county = county_individual, countn = countn_individual)
+
+#require(grid)
+#require(lattice)
+#require(latticeExtra)
+#require(HH)
+#likert(ind_items)
+
+ggplot(data=ind_items, aes(x=percn, y=Questions))+
+  geom_bar(stat="identity", fill="#7fbf7b")+
+  geom_text(aes(label=paste0("n = ", countn)), hjust=1.2, color="white", size=3.5)+
+  labs(caption = "Note: The maximum value in x is 5%, 95% approbed the personal attention.")+
+  scale_x_continuous(name="Percentage of NO responses (%)")+
+  theme(plot.caption = element_text(hjust = 1), panel.grid = element_blank())
+
+```
+
+# Payment, delivery and after-sales
+
+Buying a car faces three further moments at the firm. This part of the report will focus on them, showing the general perception towards each and which steps make them pleasant and satisfactory.
+
+# Payment experience
+
+Above 75% from the respondents refered to be extremely satisfied with the payment experience and less that 4% pointed the low quality of it. 
+
+```{r payment_freq, echo=FALSE, fig.width=12}
+
+proportion_payment_ex <- sales %>%
+  dplyr::select(is_payment_experience) %>%
+  group_by(is_payment_experience) %>%
+  tally() %>%
+  mutate(pct = (n / sum(n)) * 100)
+
+  
+go_payment <- ggplot(proportion_payment_ex, aes(is_payment_experience, n, fill = is_payment_experience)) +
+        geom_bar(position = position_stack(reverse=TRUE), stat = "identity", color = NA) +
+  geom_text(aes(label=paste0(round(pct, digits=2),"%")), position = position_dodge(1), hjust=-0.2, size = 3)+
+  scale_fill_manual(values = c("#1b7837", "#7fbf7b", "#d9f0d3", "#e7d4e8", "#af8dc3", "#762a83"  )) +
+  scale_x_discrete(labels = c("Extremely satisfied", "Satisfied", "Slightly satisfied", "Slightly unsatisfied", "Unsatisfied", "Extremely unsatisfied")) +
+  labs(fill = "Scores", x = "Payment experience perception", y = "Number of respondents")+
+  theme(legend.position="none", panel.grid = element_blank(), plot.margin = margin(0,0,0,0, "cm"))+
+  coord_flip()
+
+go_payment
+
+```
+
+In table below, the number of negative comments regarding the payment experience are displayed. According to this, the time to deliver the documents is insufficient and there is a lack to understand the contract. 
+
+```{r payment_scores, echo=FALSE}
+payment_recoded <- sales %>%
+  mutate(financial_products_info = relabel_x(financial_products_info)) %>%
+  mutate(payment_assistance = relabel_x(payment_assistance)) %>%
+  mutate(contract_explanation = relabel_x(contract_explanation)) %>%
+  mutate(time_for_docs = relabel_x(time_for_docs)) %>%
+  select(financial_products_info, payment_assistance, contract_explanation, time_for_docs)
+
+#tbl_summary(payment_recoded)
+payment_feat <- tbl_summary(payment_recoded) %>%
+  as_gt()
+
+payment_feat
+
+```
+
+In an effort to go deeper on the complaints, a descriptive analysis of those who add further comments to this section on the survey was conducted. Using this results is possible to observe that negative opinions talk about "credito", "precio", "entrega", "enganche" and "pagar" (credit, price, deliver, deposit and payment, respectively).
+
+```{r payment_cloud_code, include=FALSE}
+
+unsatisfied_payment <- sales %>%
+  dplyr::select(is_payment_experience, extra_payment) %>%
+  group_by(is_payment_experience) %>%
+  filter(is_payment_experience == "4" |
+         is_payment_experience == "5" | 
+         is_payment_experience == "6")
+
+
+fileConn<-file("payment_extra.txt")
+writeLines(unsatisfied_payment$extra_payment, fileConn)
+close(fileConn)
+
+filePath <- "payment_extra.txt"
+text <- readLines(filePath, encoding="UTF-8")
+
+text = iconv(text, to="ASCII//TRANSLIT")
+corpus <- Corpus(VectorSource(text))
+
+d <- tm_map(corpus, tolower)
+d <- tm_map(d, stripWhitespace)
+d <- tm_map(d, removePunctuation)
+d <- tm_map(d, removeNumbers)
+d <- tm_map(d, removeWords, c(stopwords("spanish"), "vehiculo", "auto", "autos", "solo", "ford", "asi", "carro"))
+
+#Term matrix
+tdm <- TermDocumentMatrix(d)
+
+#Summary
+m <- as.matrix(tdm)
+v <- sort(rowSums(m), decreasing=TRUE)
+df <- data.frame(word = names(v), freq=v)
+
+
+```
+
+```{r payment_cloud, echo=FALSE}
+
+#Plots
+#Frequencies
+wordcloud(words=df$word, freq=df$freq, min.freq = 6, 
+          max.words = 100, random.order = FALSE, rot.per = 0.35,
+          colors = brewer.pal(9, "YlGnBu"))
+
+```
+
+Interestingly, an analysis of the frequency of a 2 n-gram (appearance of word sequences) highlight similar complaints about "comision apertura".
+
+```{r payment_cloud_n, echo=FALSE}
+
+#N-grams
+
+n2 <- textcnt(d, n=2, method="string")
+n2 <- n2[order(n2, decreasing = TRUE)]
+data.frame(n2=n2[1:10])
+
+```
+
+
+# Delivery experience
+
+The responses from the delivery of the products is completely similar to the payment experience. Less than five percent mention to be somewhat unsatisfied with the treatment of the employees in this phase.  
+
+```{r delivery_freq, echo=FALSE, fig.width=12}
+
+delivery_ex <- sales %>%
+  dplyr::select(is_delivery) %>%
+  group_by(is_delivery) %>%
+  tally() %>%
+  mutate(pct = (n / sum(n)) * 100)
+
+  
+delivery <- ggplot(delivery_ex, aes(is_delivery, n, fill = is_delivery)) +
+        geom_bar(position = position_stack(reverse=TRUE), stat = "identity", color = NA) +
+  geom_text(aes(label=paste0(round(pct, digits=2),"%")), position = position_dodge(1), hjust=-0.2, size = 3)+
+  scale_fill_manual(values = c("#1b7837", "#7fbf7b", "#d9f0d3", "#e7d4e8", "#af8dc3", "#762a83"  )) +
+  scale_x_discrete(labels = c("Extremely satisfied", "Satisfied", "Slightly satisfied", "Slightly unsatisfied", "Unsatisfied", "Extremely unsatisfied")) +
+  labs(fill = "Scores", x = "Delivery experience perception", y = "Number of respondents")+
+  theme(legend.position="none", panel.grid = element_blank(), plot.margin = margin(0,0,0,0, "cm"))+
+  coord_flip()
+
+delivery
+
+```
+
+This unsatisfaction could be mostly related with the deliver on time of the products (7.5%) and the date set to provide them (8.2%). Following these features and according to the data, the explanation of what is delivered produces most of the nonconformities.
+
+```{r delivery_scores, echo=FALSE}
+
+#Sum responses marked with an X, corresponding to a negative response about getting a satisfactory service.
+delivery_recoded <- sales %>%
+  mutate(timely_delivery = relabel_x(timely_delivery)) %>%
+  mutate(cleanliness = relabel_x(cleanliness)) %>%
+  mutate(condition = relabel_x(condition)) %>%
+  mutate(features_explanation = relabel_x(features_explanation)) %>%
+  mutate(delivery_time = relabel_x(delivery_time)) %>%
+  mutate(scheduling_explanation = relabel_x(scheduling_explanation)) %>%
+  mutate(checklist_review = relabel_x(checklist_review)) %>%
+  select(timely_delivery, cleanliness, condition, features_explanation, delivery_time,
+         scheduling_explanation, checklist_review)
+
+#tbl_summary(payment_recoded)
+delivery_feat <- tbl_summary(delivery_recoded) %>%
+  as_gt()
+
+delivery_feat
+
+
+```
+
+Among the complaints in the delivery phase, problems with the "agencia" (agency), "dia" (day), "tiempo" (time) and the "unidad" (that is, the car). No n-grams displayed a signifivative pattern.
+
+```{r delivery_cloud_code, include=FALSE}
+
+unsatisfied_delivery <- sales %>%
+  dplyr::select(is_delivery, extra_delivery) %>%
+  group_by(is_delivery) %>%
+  filter(is_delivery == "4" |
+         is_delivery == "5" | 
+         is_delivery == "6")
+
+fileConn<-file("delivery_extra.txt")
+writeLines(unsatisfied_delivery$extra_delivery, fileConn)
+close(fileConn)
+
+filePath <- "delivery_extra.txt"
+text <- readLines(filePath, encoding="UTF-8")
+
+text = iconv(text, to="ASCII//TRANSLIT")
+corpus <- Corpus(VectorSource(text))
+
+d <- tm_map(corpus, tolower)
+d <- tm_map(d, stripWhitespace)
+d <- tm_map(d, removePunctuation)
+d <- tm_map(d, removeNumbers)
+d <- tm_map(d, removeWords, c(stopwords("spanish"), "vehiculo", "auto", "autos", "solo", "ford", "asi", "carro", "mas", "entregaron", "aun", "habia", "dias", "tenia", "entregar", "entregan", "entrega", "tener"))
+
+#Term matrix
+tdm <- TermDocumentMatrix(d)
+findFreqTerms(tdm, lowfreq = 10)
+
+frequentes <- findFreqTerms(tdm, lowfreq = 10)
+findAssocs(tdm, "dia", 0.45) #entrega y dia
+
+#Summary
+m <- as.matrix(tdm)
+v <- sort(rowSums(m), decreasing=TRUE)
+df <- data.frame(word = names(v), freq=v)
+
+```
+
+```{r delivery_cloud, echo=FALSE}
+
+#Plots
+#Frequencies
+wordcloud(words=df$word, freq=df$freq, min.freq = 6, 
+          max.words = 100, random.order = FALSE, rot.per = 0.35,
+          colors = brewer.pal(9, "YlGnBu"))
+
+#N-grams
+
+n2 <- textcnt(d, n=4, method="string")
+n2 <- n2[order(n2, decreasing = TRUE)]
+data.frame(n2=n2[1:10])
+
+```
+
+# After sales
+
+After sales service has an important role in customer satisfaction and long term relations between a brand and the people. Similar to the other experiences, people score this moment more than satisfied.
+
+```{r after-sales, echo=FALSE, fig.width=12}
+after_ex_prop <- sales %>%
+  dplyr::select(is_commitment) %>%
+  group_by(is_commitment) %>%
+  tally() %>%
+  mutate(pct = (n / sum(n)) * 100)
+
+  
+after_ex <- ggplot(after_ex_prop, aes(is_commitment, n, fill = is_commitment)) +
+        geom_bar(position = position_stack(reverse=TRUE), stat = "identity", color = NA) +
+  geom_text(aes(label=paste0(round(pct, digits=2),"%")), position = position_dodge(1), hjust=-0.2, size = 3)+
+  scale_fill_manual(values = c("#1b7837", "#7fbf7b", "#d9f0d3", "#e7d4e8", "#af8dc3", "#762a83"  )) +
+  scale_x_discrete(labels = c("Extremely satisfied", "Satisfied", "Slightly satisfied", "Slightly unsatisfied", "Unsatisfied", "Extremely unsatisfied")) +
+  labs(fill = "Scores", x = "After-sales experience perception", y = "Number of respondents")+
+  theme(legend.position="none", panel.grid = element_blank(), plot.margin = margin(0,0,0,0, "cm"))+
+  coord_flip()
+
+after_ex
+
+```
+
+# Conclusion
+
+The customer experience surveys provide overall information and specific concerns about complaints and problems in the different phases within the sales experience. Notwithstanding the positive puntuations throughout the questionary, is possible to highlight concerns about product knowledge, payments and use of time for bringing a product.
+
